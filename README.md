@@ -79,6 +79,11 @@ This flexibility is built-in by design, allowing users to swap implementations w
 go test -v ./...
 ```
 
+## 🧪 Benchmarking
+```bash
+go test -bench=. -benchmem ./...
+```
+
 Includes:
 - Unit tests for correctness
 - Concurrency tests
