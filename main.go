@@ -2,83 +2,12 @@ package main
 
 import (
 	"fmt"
-	"hash/fnv"
 	"log"
-	"reflect"
 	"sync"
 	"time"
 
 	"github.com/ornovog/cache/common"
-	"github.com/ornovog/cache/evictions"
 )
-
-var (
-	// Cache capacity and TTL for demonstration
-	commonTTL  = 5 * time.Minute
-	maxEntries = 1000
-)
-
-func generateKey(args ...any) string {
-	h := fnv.New64a()
-	for _, arg := range args {
-		h.Write([]byte(fmt.Sprintf("%v|", arg)))
-	}
-	return fmt.Sprintf("%x", h.Sum64())
-}
-
-func NewCachedFunction(fn interface{}) interface{} {
-	valFn := reflect.ValueOf(fn)
-	typeFn := valFn.Type()
-	dedupe := common.NewInFlightDedup[any]()
-	store := common.NewStorage[any](commonTTL, maxEntries, evictions.NewLRUPolicy())
-
-	wrapped := reflect.MakeFunc(typeFn, func(args []reflect.Value) []reflect.Value {
-		keyParts := make([]any, len(args))
-		for i, v := range args {
-			keyParts[i] = v.Interface()
-		}
-		key := generateKey(keyParts...)
-		if val, err, ok := store.Get(key); ok {
-			out := []reflect.Value{reflect.ValueOf(val)}
-			if typeFn.NumOut() == 2 {
-				out = append(out, reflect.Zero(typeFn.Out(1)))
-				if err != nil {
-					out[1] = reflect.ValueOf(err)
-				}
-			}
-			return out
-		}
-
-		if val, err, ok := dedupe.Wait(key); ok {
-			out := []reflect.Value{reflect.ValueOf(val)}
-			if typeFn.NumOut() == 2 {
-				out = append(out, reflect.Zero(typeFn.Out(1)))
-				if err != nil {
-					out[1] = reflect.ValueOf(err)
-				}
-			}
-			return out
-		}
-
-		out := valFn.Call(args)
-
-		var val any
-		var err error
-		if len(out) > 0 {
-			val = out[0].Interface()
-		}
-		if len(out) > 1 && !out[1].IsNil() {
-			err = out[1].Interface().(error)
-		}
-
-		store.Set(key, val, err)
-		dedupe.Finish(key, val, err)
-
-		return out
-	})
-
-	return wrapped.Interface()
-}
 
 // fetchDataFromRemote simulates a long-running function that fetches data
 func fetchDataFromRemote(id int) (string, error) {
@@ -99,7 +28,7 @@ func main() {
 
 	// Example 1: Basic caching with the original function signature
 	log.Println("\n--- Example 1: Basic Caching ---")
-	cachedFetch := NewCachedFunction(fetchDataFromRemote).(func(int) (string, error))
+	cachedFetch := common.NewCachedFunction(fetchDataFromRemote)
 
 	// First call - will execute the function
 	start := time.Now()
@@ -119,7 +48,7 @@ func main() {
 
 	// Example 2: In-flight deduplication
 	log.Println("\n--- Example 2: In-flight Deduplication ---")
-	cachedFetchConcurrent := NewCachedFunction(fetchDataFromRemote).(func(int) (string, error))
+	cachedFetchConcurrent := common.NewCachedFunction(fetchDataFromRemote)
 
 	var wg sync.WaitGroup
 	start = time.Now()
@@ -143,7 +72,7 @@ func main() {
 
 	// Example 3: Function without error return
 	log.Println("\n--- Example 3: Function Without Error Return ---")
-	cachedComputation := NewCachedFunction(expensiveComputation).(func(int, int) int)
+	cachedComputation := common.NewCachedFunction(expensiveComputation)
 
 	start = time.Now()
 	result1 := cachedComputation(5, 10)
@@ -173,8 +102,7 @@ func testCacheCapacity() {
 		return fmt.Sprintf("data-%d", id)
 	}
 
-	cachedTestFunc := NewCachedFunction(testFunc).(func(int) string)
-
+	cachedTestFunc := common.NewCachedFunction(testFunc)
 	// Fill cache beyond capacity to test eviction
 	// Note: In a real test, we'd use a smaller cache size for demonstration
 	log.Println("Testing cache behavior with multiple entries...")

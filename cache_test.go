@@ -33,7 +33,7 @@ func simpleFunction(x int) int {
 }
 
 func TestBasicCaching(t *testing.T) {
-	cachedFunc := NewCachedFunction(slowFunction).(func(int) (string, error))
+	cachedFunc := common.NewCachedFunction(slowFunction)
 
 	// First call should execute the function
 	start := time.Now()
@@ -64,7 +64,7 @@ func TestBasicCaching(t *testing.T) {
 }
 
 func TestCachingWithErrors(t *testing.T) {
-	cachedFunc := NewCachedFunction(errorFunction).(func(bool) (string, error))
+	cachedFunc := common.NewCachedFunction(errorFunction)
 
 	// First call with error
 	result1, err1 := cachedFunc(true)
@@ -87,7 +87,7 @@ func TestCachingWithErrors(t *testing.T) {
 }
 
 func TestFunctionWithoutErrorReturn(t *testing.T) {
-	cachedFunc := NewCachedFunction(simpleFunction).(func(int) int)
+	cachedFunc := common.NewCachedFunction(simpleFunction)
 
 	// First call
 	start := time.Now()
@@ -108,7 +108,8 @@ func TestFunctionWithoutErrorReturn(t *testing.T) {
 
 func TestTTLExpiration(t *testing.T) {
 	testTTL := 200 * time.Millisecond
-	storage := common.NewStorage[string](testTTL, maxEntries, evictions.NewLRUPolicy())
+	testmaxEntries := 10
+	storage := common.NewStorage[string](testTTL, testmaxEntries, evictions.NewLRUPolicy())
 
 	// Test cache expiration directly
 	testKey := "[1]"
@@ -136,7 +137,7 @@ func TestConcurrentCallDeduplication(t *testing.T) {
 		return fmt.Sprintf("result-%d", id), nil
 	}
 
-	cachedFunc := NewCachedFunction(slowFuncWithCounter).(func(int) (string, error))
+	cachedFunc := common.NewCachedFunction(slowFuncWithCounter)
 
 	// Launch 10 concurrent calls with the same parameter
 	var wg sync.WaitGroup
@@ -236,7 +237,7 @@ func TestLRUOrdering(t *testing.T) {
 }
 
 func TestConcurrentCacheAccess(t *testing.T) {
-	cachedFunc := NewCachedFunction(slowFunction).(func(int) (string, error))
+	cachedFunc := common.NewCachedFunction(slowFunction)
 
 	var wg sync.WaitGroup
 	numGoroutines := 50
@@ -270,7 +271,7 @@ func BenchmarkDirectFunction(b *testing.B) {
 }
 
 func BenchmarkCachedFunctionCold(b *testing.B) {
-	cachedFunc := NewCachedFunction(slowFunction).(func(int) (string, error))
+	cachedFunc := common.NewCachedFunction(slowFunction)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -279,7 +280,7 @@ func BenchmarkCachedFunctionCold(b *testing.B) {
 }
 
 func BenchmarkCachedFunctionWarm(b *testing.B) {
-	cachedFunc := NewCachedFunction(slowFunction).(func(int) (string, error))
+	cachedFunc := common.NewCachedFunction(slowFunction)
 
 	// Warm up cache with a few entries
 	for i := 0; i < 10; i++ {
@@ -293,7 +294,7 @@ func BenchmarkCachedFunctionWarm(b *testing.B) {
 }
 
 func BenchmarkHighConcurrency(b *testing.B) {
-	cachedFunc := NewCachedFunction(slowFunction).(func(int) (string, error))
+	cachedFunc := common.NewCachedFunction(slowFunction)
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
