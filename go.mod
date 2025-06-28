@@ -1,4 +1,4 @@
-module github.com/caching-layer
+module github.com/ornovog/cache
 
 go 1.21
 

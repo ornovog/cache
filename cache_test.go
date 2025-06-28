@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/caching-layer/common"
+	"github.com/ornovog/cache/common"
+	"github.com/ornovog/cache/evictions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,7 +33,7 @@ func simpleFunction(x int) int {
 }
 
 func TestBasicCaching(t *testing.T) {
-	cachedFunc := common.NewCachedFunction(slowFunction, newLRUStorage[string](commonTTL, maxEntries))
+	cachedFunc := NewCachedFunction(slowFunction).(func(int) (string, error))
 
 	// First call should execute the function
 	start := time.Now()
@@ -63,7 +64,7 @@ func TestBasicCaching(t *testing.T) {
 }
 
 func TestCachingWithErrors(t *testing.T) {
-	cachedFunc := common.NewCachedFunction(errorFunction, newLRUStorage[string](commonTTL, maxEntries))
+	cachedFunc := NewCachedFunction(errorFunction).(func(bool) (string, error))
 
 	// First call with error
 	result1, err1 := cachedFunc(true)
@@ -86,7 +87,7 @@ func TestCachingWithErrors(t *testing.T) {
 }
 
 func TestFunctionWithoutErrorReturn(t *testing.T) {
-	cachedFunc := common.NewCachedFunction(simpleFunction, newLRUStorage[int](commonTTL, maxEntries))
+	cachedFunc := NewCachedFunction(simpleFunction).(func(int) int)
 
 	// First call
 	start := time.Now()
@@ -107,7 +108,7 @@ func TestFunctionWithoutErrorReturn(t *testing.T) {
 
 func TestTTLExpiration(t *testing.T) {
 	testTTL := 200 * time.Millisecond
-	storage := newLRUStorage[string](testTTL, maxEntries)
+	storage := common.NewStorage[string](testTTL, maxEntries, evictions.NewLRUPolicy())
 
 	// Test cache expiration directly
 	testKey := "[1]"
@@ -135,7 +136,7 @@ func TestConcurrentCallDeduplication(t *testing.T) {
 		return fmt.Sprintf("result-%d", id), nil
 	}
 
-	cachedFunc := common.NewCachedFunction(slowFuncWithCounter, newLRUStorage[string](commonTTL, maxEntries))
+	cachedFunc := NewCachedFunction(slowFuncWithCounter).(func(int) (string, error))
 
 	// Launch 10 concurrent calls with the same parameter
 	var wg sync.WaitGroup
@@ -172,127 +173,94 @@ func TestConcurrentCallDeduplication(t *testing.T) {
 	assert.GreaterOrEqual(t, duration, 200*time.Millisecond)
 }
 
-//func TestCacheCapacityAndLRUEviction(t *testing.T) {
-//	// Create a cache with small capacity for testing
-//	cache := NewCache(3, 5*time.Minute)
-//
-//	// We'll manually test the cache capacity since NewCachedFunction
-//	// creates its own cache. In a production system, we might want
-//	// to make the cache configurable.
-//
-//	// Add entries up to capacity
-//	for i := 0; i < 3; i++ {
-//		key := fmt.Sprintf("[%d]", i)
-//		cache.set(key, nil, nil)
-//	}
-//
-//	// Verify cache is at capacity
-//	stats := cache.GetStats()
-//	assert.Equal(t, 3, stats["entries"])
-//
-//	// Add one more entry - should evict the oldest (entry 0)
-//	cache.set("[3]", nil, nil)
-//
-//	// Should still be at capacity
-//	stats = cache.GetStats()
-//	assert.Equal(t, 3, stats["entries"])
-//
-//	// Entry 0 should be evicted
-//	cache.mu.RLock()
-//	_, exists := cache.entries["[0]"]
-//	cache.mu.RUnlock()
-//	assert.False(t, exists, "Oldest entry should be evicted")
-//
-//	// Entries 1, 2, 3 should exist
-//	for i := 1; i <= 3; i++ {
-//		cache.mu.RLock()
-//		_, exists := cache.entries[fmt.Sprintf("[%d]", i)]
-//		cache.mu.RUnlock()
-//		assert.True(t, exists, fmt.Sprintf("Entry %d should exist", i))
-//	}
-//}
-//
-//func TestLRUOrdering(t *testing.T) {
-//	cache := NewCache(3, 5*time.Minute)
-//
-//	// Add 3 entries
-//	cache.set("[0]", nil, nil)
-//	cache.set("[1]", nil, nil)
-//	cache.set("[2]", nil, nil)
-//
-//	// Access entry 0 to make it most recently used
-//	cache.get("[0]")
-//
-//	// Add another entry - should evict entry 1 (oldest unused)
-//	cache.set("[3]", nil, nil)
-//
-//	// Entry 1 should be evicted (was least recently used)
-//	cache.mu.RLock()
-//	_, exists := cache.entries["[1]"]
-//	cache.mu.RUnlock()
-//	assert.False(t, exists, "Entry 1 should be evicted as LRU")
-//
-//	// Entries 0, 2, 3 should exist
-//	for _, key := range []string{"[0]", "[2]", "[3]"} {
-//		cache.mu.RLock()
-//		_, exists := cache.entries[key]
-//		cache.mu.RUnlock()
-//		assert.True(t, exists, fmt.Sprintf("Entry %s should exist", key))
-//	}
-//}
-//
-//func TestConcurrentCacheAccess(t *testing.T) {
-//	cachedFunc := NewCachedFunction(slowFunction).(func(int) (string, error))
-//
-//	var wg sync.WaitGroup
-//	numGoroutines := 50
-//	numKeys := 10
-//
-//	// Launch many goroutines accessing different keys
-//	for i := 0; i < numGoroutines; i++ {
-//		wg.Add(1)
-//		go func(goroutineID int) {
-//			defer wg.Done()
-//
-//			// Each goroutine accesses multiple keys
-//			for j := 0; j < numKeys; j++ {
-//				key := j % 5 // Use only 5 different keys to ensure some cache hits
-//				result, err := cachedFunc(key)
-//				require.NoError(t, err)
-//				assert.Equal(t, fmt.Sprintf("result-%d", key), result)
-//			}
-//		}(i)
-//	}
-//
-//	wg.Wait()
-//	// If we get here without race conditions or deadlocks, the test passes
-//}
-//
-//func TestCacheStatsAndClear(t *testing.T) {
-//	cache := NewCache(100, 5*time.Minute)
-//
-//	// Initially empty
-//	stats := cache.GetStats()
-//	assert.Equal(t, 0, stats["entries"])
-//	assert.Equal(t, 100, stats["max_entries"])
-//	assert.Equal(t, 300.0, stats["ttl_seconds"]) // 5 minutes
-//
-//	// Add some entries
-//	for i := 0; i < 5; i++ {
-//		cache.set(fmt.Sprintf("[%d]", i), nil, nil)
-//	}
-//
-//	// Check stats
-//	stats = cache.GetStats()
-//	assert.Equal(t, 5, stats["entries"])
-//
-//	// Clear cache
-//	cache.Clear()
-//
-//	// Should be empty again
-//	stats = cache.GetStats()
-//	assert.Equal(t, 0, stats["entries"])
-//}
+func TestCacheCapacityAndLRUEviction(t *testing.T) {
+	ttl := 5 * time.Minute
+	store := common.NewStorage[string](ttl, 3, evictions.NewLRUPolicy())
+
+	// Fill cache to capacity
+	store.Set("a", "A", nil)
+	store.Set("b", "B", nil)
+	store.Set("c", "C", nil)
+
+	// All should be present
+	if _, _, ok := store.Get("a"); !ok {
+		t.Error("expected 'a' in cache")
+	}
+	if _, _, ok := store.Get("b"); !ok {
+		t.Error("expected 'b' in cache")
+	}
+	if _, _, ok := store.Get("c"); !ok {
+		t.Error("expected 'c' in cache")
+	}
+
+	// Add one more to trigger eviction (should evict LRU: 'a')
+	store.Set("d", "D", nil)
+
+	// 'a' should be evicted
+	if _, _, ok := store.Get("a"); ok {
+		t.Error("expected 'a' to be evicted (LRU)")
+	}
+	// b, c, d should remain
+	for _, k := range []string{"b", "c", "d"} {
+		if _, _, ok := store.Get(k); !ok {
+			t.Errorf("expected '%s' to remain in cache", k)
+		}
+	}
+}
+
+func TestLRUOrdering(t *testing.T) {
+	ttl := 5 * time.Minute
+	capacity := 3
+	store := common.NewStorage[string](ttl, capacity, evictions.NewLRUPolicy())
+
+	// Insert 3 keys
+	store.Set("x", "X", nil)
+	store.Set("y", "Y", nil)
+	store.Set("z", "Z", nil)
+
+	// Access 'x' to make it most recently used
+	store.Get("x")
+
+	// Add another key -> should evict 'y' (was least recently used)
+	store.Set("w", "W", nil)
+
+	// Check that 'y' is gone, but 'x', 'z', and 'w' remain
+	if _, _, ok := store.Get("y"); ok {
+		t.Error("expected 'y' to be evicted (LRU)")
+	}
+	for _, k := range []string{"x", "z", "w"} {
+		if _, _, ok := store.Get(k); !ok {
+			t.Errorf("expected '%s' to remain in cache", k)
+		}
+	}
+}
+
+func TestConcurrentCacheAccess(t *testing.T) {
+	cachedFunc := NewCachedFunction(slowFunction).(func(int) (string, error))
+
+	var wg sync.WaitGroup
+	numGoroutines := 50
+	numKeys := 10
+
+	// Launch many goroutines accessing different keys
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+
+			// Each goroutine accesses multiple keys
+			for j := 0; j < numKeys; j++ {
+				key := j % 5 // Use only 5 different keys to ensure some cache hits
+				result, err := cachedFunc(key)
+				require.NoError(t, err)
+				assert.Equal(t, fmt.Sprintf("result-%d", key), result)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	// If we get here without race conditions or deadlocks, the test passes
+}
 
 // Benchmark tests (bonus requirement)
 func BenchmarkDirectFunction(b *testing.B) {
@@ -302,7 +270,7 @@ func BenchmarkDirectFunction(b *testing.B) {
 }
 
 func BenchmarkCachedFunctionCold(b *testing.B) {
-	cachedFunc := common.NewCachedFunction(slowFunction, newLRUStorage[string](commonTTL, maxEntries))
+	cachedFunc := NewCachedFunction(slowFunction).(func(int) (string, error))
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -311,7 +279,7 @@ func BenchmarkCachedFunctionCold(b *testing.B) {
 }
 
 func BenchmarkCachedFunctionWarm(b *testing.B) {
-	cachedFunc := common.NewCachedFunction(slowFunction, newLRUStorage[string](commonTTL, maxEntries))
+	cachedFunc := NewCachedFunction(slowFunction).(func(int) (string, error))
 
 	// Warm up cache with a few entries
 	for i := 0; i < 10; i++ {
@@ -325,7 +293,7 @@ func BenchmarkCachedFunctionWarm(b *testing.B) {
 }
 
 func BenchmarkHighConcurrency(b *testing.B) {
-	cachedFunc := common.NewCachedFunction(slowFunction, newLRUStorage[string](commonTTL, maxEntries))
+	cachedFunc := NewCachedFunction(slowFunction).(func(int) (string, error))
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {

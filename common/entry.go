@@ -3,9 +3,13 @@ package common
 import "time"
 
 type Entry[T any] interface {
+	// IsExpired checks if the entry has expired based on its TTL.
 	IsExpired() bool
+	// Value returns the cached value.
 	Value() T
+	// Error returns any error associated with the entry.
 	Error() error
+	// RefreshLastUsed updates the last used timestamp of the entry.
 	RefreshLastUsed()
 }
 

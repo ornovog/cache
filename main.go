@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
+	"hash/fnv"
 	"log"
 	"reflect"
 	"sync"
 	"time"
 
-	"github.com/caching-layer/common"
-	"github.com/caching-layer/lru"
+	"github.com/ornovog/cache/common"
+	"github.com/ornovog/cache/evictions"
 )
 
 var (
@@ -17,22 +18,26 @@ var (
 	maxEntries = 1000
 )
 
-func newLRUStorage[T any](ttl time.Duration, maxEntries int) common.Storage[T] {
-	return common.NewStorage[T](ttl, maxEntries, lru.NewLRUPolicy())
+func generateKey(args ...any) string {
+	h := fnv.New64a()
+	for _, arg := range args {
+		h.Write([]byte(fmt.Sprintf("%v|", arg)))
+	}
+	return fmt.Sprintf("%x", h.Sum64())
 }
 
 func NewCachedFunction(fn interface{}) interface{} {
 	valFn := reflect.ValueOf(fn)
 	typeFn := valFn.Type()
 	dedupe := common.NewInFlightDedup[any]()
+	store := common.NewStorage[any](commonTTL, maxEntries, evictions.NewLRUPolicy())
 
 	wrapped := reflect.MakeFunc(typeFn, func(args []reflect.Value) []reflect.Value {
 		keyParts := make([]any, len(args))
 		for i, v := range args {
 			keyParts[i] = v.Interface()
 		}
-		key := common.GenerateKey(keyParts...)
-		store := common.NewStorage[any](time.Minute, 100, lru.NewLRUPolicy())
+		key := generateKey(keyParts...)
 		if val, err, ok := store.Get(key); ok {
 			out := []reflect.Value{reflect.ValueOf(val)}
 			if typeFn.NumOut() == 2 {
@@ -114,7 +119,7 @@ func main() {
 
 	// Example 2: In-flight deduplication
 	log.Println("\n--- Example 2: In-flight Deduplication ---")
-	cachedFetchConcurrent := common.NewCachedFunction(fetchDataFromRemote, newLRUStorage[string](commonTTL, maxEntries))
+	cachedFetchConcurrent := NewCachedFunction(fetchDataFromRemote).(func(int) (string, error))
 
 	var wg sync.WaitGroup
 	start = time.Now()
@@ -138,7 +143,7 @@ func main() {
 
 	// Example 3: Function without error return
 	log.Println("\n--- Example 3: Function Without Error Return ---")
-	cachedComputation := common.NewCachedFunction(expensiveComputation, newLRUStorage[int](commonTTL, maxEntries))
+	cachedComputation := NewCachedFunction(expensiveComputation).(func(int, int) int)
 
 	start = time.Now()
 	result1 := cachedComputation(5, 10)
@@ -168,7 +173,7 @@ func testCacheCapacity() {
 		return fmt.Sprintf("data-%d", id)
 	}
 
-	cachedTestFunc := common.NewCachedFunction(testFunc, newLRUStorage[string](commonTTL, maxEntries))
+	cachedTestFunc := NewCachedFunction(testFunc).(func(int) string)
 
 	// Fill cache beyond capacity to test eviction
 	// Note: In a real test, we'd use a smaller cache size for demonstration

@@ -1,4 +1,4 @@
-package lru
+package evictions
 
 import (
 	"log"
@@ -41,13 +41,14 @@ func (l *lruEvictionPolicy) Remove(key string) {
 	}
 }
 
-func (l *lruEvictionPolicy) EvictIfNeeded(entries map[string]any, maxEntries int) {
+func (l *lruEvictionPolicy) EvictIfNeeded(evict func(string), currentSize int, maxEntries int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for len(entries) > maxEntries && len(l.order) > 0 {
+	for currentSize >= maxEntries && len(l.order) > 0 {
 		oldest := l.order[0]
-		delete(entries, oldest)
 		l.order = l.order[1:]
+		evict(oldest)
 		log.Printf("LRU Evicted key: %s", oldest)
+		currentSize--
 	}
 }

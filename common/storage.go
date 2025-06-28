@@ -54,7 +54,10 @@ func (s *storage[T]) Set(key string, value T, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.entries) >= s.maxEntries {
-		s.eviction.EvictIfNeeded(nil, s.maxEntries) // Simplified for now
+		log.Printf("Cache: Evicting entry for key: %s due to max entries limit", key)
+		s.eviction.EvictIfNeeded(func(key string) {
+			delete(s.entries, key)
+		}, len(s.entries), s.maxEntries)
 	}
 	s.entries[key] = NewEntryWithTTL(value, err, s.ttl)
 	s.eviction.Add(key)
