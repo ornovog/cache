@@ -25,7 +25,7 @@ go get github.com/ornovog/cache
 ### Basic Function Caching
 
 ```go
-cachedFetch := cache.NewCachedFunction(fetchDataFromRemote).(func(int) (string, error))
+cachedFetch := cache.NewCachedFunction(fetchDataFromRemote)
 
 result, err := cachedFetch(42)
 fmt.Println(result)
@@ -36,7 +36,7 @@ fmt.Println(result)
 ```go
 cachedMultiply := cache.NewCachedFunction(func(x, y int) int {
     return x * y * 42
-}).(func(int, int) int)
+})
 
 fmt.Println(cachedMultiply(3, 7))
 ```
